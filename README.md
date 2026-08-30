@@ -15,6 +15,10 @@ visible only to the player running the addon.
 - Does not modify shared raid markers or affect other players.
 - Includes an optional test mode and mouseover diagnostic command.
 - Organizes NPC textures in separate folders for each dungeon.
+- Includes persistent options for icon size, position, opacity, combat visibility,
+  and enabled dungeons.
+- Detects the active supported dungeon and only checks its texture folder.
+- Provides a draggable `PMI` minimap button for opening the addon options.
 
 ## Installation
 
@@ -115,16 +119,38 @@ them apart.
 ## Commands
 
 - `/pmi` or `/prioritymarkericons` — Display addon instructions.
-- `/pmi test` — Toggle a question-mark icon above all visible nameplates to test
-  positioning and compatibility.
+- `/pmi options` — Open the addon settings panel.
+- `/pmi on` / `/pmi off` — Enable or disable automatic icons.
+- `/pmi test` — Toggle all eight marker symbols above visible nameplates to test
+  positioning, size, opacity, and compatibility.
+- `/pmi status` — Report the current instance, matched texture folder, map ID,
+  visible nameplate count, and active settings.
 - `/pmi inspect` — Report the identity information available for the unit under
-  the cursor.
+  the cursor, including the detected nameplate anchor.
+- `/pmi size 36` — Set icon size from 16 to 64 pixels.
+- `/pmi offset 6` — Set the vertical offset from -20 to 60 pixels.
+- `/pmi alpha 1` — Set icon opacity from 0.2 to 1.
+- `/pmi dungeononly` — Toggle display outside supported dungeons.
+- `/pmi combatonly` — Toggle display only while in combat.
+- `/pmi minimap` — Show or hide the minimap options button.
+- `/pmi debug` — Toggle diagnostic event messages.
+- `/pmi reset` — Restore default settings.
 
 The legacy `/am` and `/automarker` aliases are also supported.
 
 Optional Triangle and Square mouseover keybinds remain available in the game's
 Key Bindings menu as manual fallbacks. They are not required for automatic
 icons.
+
+## Settings
+
+Enter `/pmi options` to open the panel under the game's AddOns settings. The
+panel can enable or disable the addon, restrict icons to supported dungeons or
+combat, change icon size, vertical offset and opacity, enable diagnostics, and
+enable individual dungeon databases. It can also show or hide the draggable
+`PMI` minimap button. Clicking that button opens this panel directly. Settings,
+including the minimap position, are saved account-wide in
+`PriorityMarkerIconsDB`.
 
 ## How it works
 
@@ -141,9 +167,18 @@ Media\Kings Rest\Risen Hexer.tga
 Media\Murder Row\Bribed Guard.tga
 ```
 
-For every visible nameplate, the addon attempts the configured dungeon paths.
-Only a texture whose filename matches the NPC name can be rendered. Missing
-textures remain invisible. The NPC IDs listed above are documentation only.
+Inside a supported dungeon, the addon attempts only that dungeon's texture path
+for every visible nameplate. If dungeon-only mode is disabled in an unsupported
+area, all enabled dungeon paths are attempted as a fallback. Only a texture
+whose filename matches the NPC name can be rendered. Missing textures remain
+invisible. The NPC IDs listed above are documentation only.
+
+The dungeon folder is detected and cached as the player enters the instance,
+before a Mythic+ challenge begins. When `CHALLENGE_MODE_START` fires, the addon
+keeps using that cached folder. If the instance name or ID later becomes secret,
+zone updates preserve the cache instead of falling back to all dungeon folders.
+The cache is cleared after leaving the instance or when a different readable
+instance ID is detected.
 
 ## Adding or changing NPC markers
 
@@ -181,4 +216,7 @@ To add an NPC:
   localized NPC names.
 - NPCs with the same name always receive the same icon, even if their NPC IDs
   differ.
+- Individual NPC toggles are not available because secret names cannot safely
+  be compared or used as Lua table keys; dungeon databases can be toggled as a
+  whole in the settings panel.
 - Icons require the NPC's nameplate to be available.

@@ -46,11 +46,19 @@ Features:
 - Separate NPC definitions for each supported dungeon
 - Test mode for checking icon placement
 - Mouseover diagnostic command for troubleshooting
+- Persistent in-game settings for size, position, opacity, and visibility
+- Draggable PMI minimap shortcut for opening addon options
+- Automatic active-dungeon filtering
+- Pre-Mythic+ dungeon detection with a protected in-instance folder cache
+- Status and debug commands for troubleshooting
 
 Commands:
 
 - `/pmi` or `/prioritymarkericons` displays addon instructions.
 - `/pmi test` toggles test icons above visible nameplates.
+- `/pmi options` opens the in-game settings panel.
+- `/pmi minimap` shows or hides the minimap shortcut.
+- `/pmi status` reports the active instance, folder, map, and settings.
 - `/pmi inspect` reports identity information available for the unit under the
   cursor.
 
