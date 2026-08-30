@@ -1,8 +1,8 @@
 <Bindings>
-    <Binding name="AUTOMARKER_TRIANGLE" header="AUTOMARKER">
-        CLICK AutoMarkerTriangleButton:LeftButton
+    <Binding name="PRIORITYMARKERICONS_TRIANGLE" header="PRIORITYMARKERICONS">
+        CLICK PriorityMarkerIconsTriangleButton:LeftButton
     </Binding>
-    <Binding name="AUTOMARKER_SQUARE">
-        CLICK AutoMarkerSquareButton:LeftButton
+    <Binding name="PRIORITYMARKERICONS_SQUARE">
+        CLICK PriorityMarkerIconsSquareButton:LeftButton
     </Binding>
 </Bindings>

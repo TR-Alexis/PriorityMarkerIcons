@@ -1,8 +1,8 @@
 local addonName = ...
 
-BINDING_HEADER_AUTOMARKER = "Priority Marker Icons"
-BINDING_NAME_AUTOMARKER_TRIANGLE = "Mark mouseover with Triangle"
-BINDING_NAME_AUTOMARKER_SQUARE = "Mark mouseover with Square"
+BINDING_HEADER_PRIORITYMARKERICONS = "Priority Marker Icons"
+BINDING_NAME_PRIORITYMARKERICONS_TRIANGLE = "Mark mouseover with Triangle"
+BINDING_NAME_PRIORITYMARKERICONS_SQUARE = "Mark mouseover with Square"
 
 local PREFIX = "|cff33ff99Priority Marker Icons:|r "
 local DUNGEON_FOLDERS = {
@@ -41,8 +41,8 @@ local function CreateMarkerButton(name, markerIndex)
 end
 
 -- Blizzard raid marker indices: 4 = Triangle, 6 = Square.
-CreateMarkerButton("AutoMarkerTriangleButton", 4)
-CreateMarkerButton("AutoMarkerSquareButton", 6)
+CreateMarkerButton("PriorityMarkerIconsTriangleButton", 4)
+CreateMarkerButton("PriorityMarkerIconsSquareButton", 6)
 
 -- Midnight can hide NPC identities from Lua, but SetFormattedText accepts a
 -- secret name as an argument. The database lives in dungeon folders under
@@ -163,14 +163,16 @@ local function ShowHelp()
     Print("loaded.")
     Print("Local icons appear automatically and require no key presses.")
     Print("The Square and Triangle keybinds remain available as optional fallbacks.")
-    Print("Use /am inspect while hovering over a unit.")
+    Print("Use /pmi inspect while hovering over a unit.")
     Print("Local icons are loaded from dungeon folders under Media.")
-    Print("Use /am test to check icon placement on all visible nameplates.")
+    Print("Use /pmi test to check icon placement on all visible nameplates.")
 end
 
-SLASH_AUTOMARKER1 = "/automarker"
-SLASH_AUTOMARKER2 = "/am"
-SlashCmdList.AUTOMARKER = function(message)
+SLASH_PRIORITYMARKERICONS1 = "/prioritymarkericons"
+SLASH_PRIORITYMARKERICONS2 = "/pmi"
+SLASH_PRIORITYMARKERICONS3 = "/automarker"
+SLASH_PRIORITYMARKERICONS4 = "/am"
+SlashCmdList.PRIORITYMARKERICONS = function(message)
     local command = strtrim(message or ""):lower()
     if command == "inspect" or command == "id" then
         InspectMouseover()
@@ -190,7 +192,7 @@ events:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent", function(_, event, unitToken)
     if event == "PLAYER_LOGIN" then
-        Print("loaded. Type /am for instructions.")
+        Print("loaded. Type /pmi for instructions.")
         C_Timer.NewTicker(3, RefreshNameplates)
     elseif event == "NAME_PLATE_UNIT_ADDED" then
         UpdateNameplate(unitToken)

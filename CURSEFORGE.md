@@ -49,10 +49,12 @@ Features:
 
 Commands:
 
-- `/am` or `/automarker` displays addon instructions.
-- `/am test` toggles test icons above visible nameplates.
-- `/am inspect` reports identity information available for the unit under the
+- `/pmi` or `/prioritymarkericons` displays addon instructions.
+- `/pmi test` toggles test icons above visible nameplates.
+- `/pmi inspect` reports identity information available for the unit under the
   cursor.
+
+The legacy `/am` and `/automarker` aliases are also supported.
 
 The included NPC database currently uses English NPC names and is intended for
 the English World of Warcraft client. Icons are local and require enemy

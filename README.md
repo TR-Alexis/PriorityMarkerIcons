@@ -18,8 +18,8 @@ visible only to the player running the addon.
 
 ## Installation
 
-1. Copy the `AutoMarker` folder into
-   `_retail_\Interface\AddOns\AutoMarker`.
+1. Copy the `PriorityMarkerIcons` folder into
+   `_retail_\Interface\AddOns\PriorityMarkerIcons`.
 2. Start World of Warcraft or type `/reload` if the game is already running.
 3. Make sure enemy nameplates are enabled.
 4. Enter a supported dungeon. Configured NPCs will display an icon above their
@@ -114,11 +114,13 @@ them apart.
 
 ## Commands
 
-- `/am` or `/automarker` — Display addon instructions.
-- `/am test` — Toggle a question-mark icon above all visible nameplates to test
+- `/pmi` or `/prioritymarkericons` — Display addon instructions.
+- `/pmi test` — Toggle a question-mark icon above all visible nameplates to test
   positioning and compatibility.
-- `/am inspect` — Report the identity information available for the unit under
+- `/pmi inspect` — Report the identity information available for the unit under
   the cursor.
+
+The legacy `/am` and `/automarker` aliases are also supported.
 
 Optional Triangle and Square mouseover keybinds remain available in the game's
 Key Bindings menu as manual fallbacks. They are not required for automatic
