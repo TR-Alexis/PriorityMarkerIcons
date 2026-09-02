@@ -18,6 +18,27 @@ local TEST_MARKERS = {
     "_star", "_circle", "_diamond", "_triangle",
     "_moon", "_square", "_cross", "_skull",
 }
+local MARKER_OPTIONS = {
+    { id = "star", label = "Star", texture = "_star" },
+    { id = "circle", label = "Circle", texture = "_circle" },
+    { id = "diamond", label = "Diamond", texture = "_diamond" },
+    { id = "triangle", label = "Triangle", texture = "_triangle" },
+    { id = "moon", label = "Moon", texture = "_moon" },
+    { id = "square", label = "Square", texture = "_square" },
+    { id = "cross", label = "Cross", texture = "_cross" },
+    { id = "skull", label = "Skull", texture = "_skull" },
+}
+local MARKER_OPTION_BY_ID = {}
+local CUSTOM_MARKER_DUNGEONS = {
+    ["Kings Rest"] = true,
+    ["Den of Nalorakk"] = true,
+    ["Murder Row"] = true,
+    ["The Blinding Vale"] = true,
+    ["Voidscar Arena"] = true,
+    ["Altar of Fangs"] = true,
+    ["Ruby Life Pools"] = true,
+    ["Temple of Sethraliss"] = true,
+}
 local DEFAULTS = {
     enabled = true,
     onlyInDungeons = true,
@@ -28,6 +49,7 @@ local DEFAULTS = {
     debug = false,
     enabledDungeons = {},
     enabledNPCs = {},
+    selectedMarkers = {},
     minimap = {
         hide = false,
         angle = 220,
@@ -44,13 +66,24 @@ local UpdateMinimapButtonPosition, UpdateMinimapButtonVisibility
 local MAX_OVERLAYS = #TEST_MARKERS
 local NPC_DEFAULTS_VERSION = 3
 
+for _, marker in ipairs(MARKER_OPTIONS) do
+    MARKER_OPTION_BY_ID[marker.id] = marker
+end
+
 for index, folder in ipairs(DUNGEON_FOLDERS) do
     LEGACY_MEDIA_FORMATS[index] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\%s:%d:%d|t"
     NPC_MEDIA_FORMATS[folder] = {}
     local dungeonNPCs = NPC_DATABASE[folder]
     MAX_OVERLAYS = math.max(MAX_OVERLAYS, #dungeonNPCs)
     for npcIndex, npc in ipairs(dungeonNPCs) do
-        NPC_MEDIA_FORMATS[folder][npcIndex] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\NPCs\\" .. folder .. "\\" .. npc.path .. "\\%s:%d:%d|t"
+        if CUSTOM_MARKER_DUNGEONS[folder] then
+            NPC_MEDIA_FORMATS[folder][npcIndex] = {}
+            for _, marker in ipairs(MARKER_OPTIONS) do
+                NPC_MEDIA_FORMATS[folder][npcIndex][marker.id] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\NPCs\\" .. folder .. "\\" .. npc.path .. "\\" .. marker.id .. "\\%s:%d:%d|t"
+            end
+        else
+            NPC_MEDIA_FORMATS[folder][npcIndex] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\NPCs\\" .. folder .. "\\" .. npc.path .. "\\%s:%d:%d|t"
+        end
     end
 end
 for index, marker in ipairs(TEST_MARKERS) do
@@ -86,10 +119,14 @@ local function InitializeDatabase()
     for _, folder in ipairs(DUNGEON_FOLDERS) do
         if db.enabledDungeons[folder] == nil then db.enabledDungeons[folder] = true end
         if type(db.enabledNPCs[folder]) ~= "table" then db.enabledNPCs[folder] = {} end
+        if type(db.selectedMarkers[folder]) ~= "table" then db.selectedMarkers[folder] = {} end
         for _, npc in ipairs(NPC_DATABASE[folder]) do
             local isNewDefault = npc.addedIn and previousNPCDefaultsVersion < npc.addedIn
             if db.enabledNPCs[folder][npc.name] == nil or isNewDefault then
                 db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+            end
+            if CUSTOM_MARKER_DUNGEONS[folder] and not MARKER_OPTION_BY_ID[db.selectedMarkers[folder][npc.name]] then
+                db.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
             end
         end
     end
@@ -233,7 +270,12 @@ local function UpdateNameplate(unitToken)
                     overlay:ClearAllPoints()
                     overlay:SetPoint("BOTTOM", anchor, "TOP", 0, db.offsetY)
                     overlay:SetAlpha(db.alpha)
-                    overlay:SetFormattedText(NPC_MEDIA_FORMATS[currentDungeonFolder][npcIndex], unitName, size, size)
+                    local mediaFormat = NPC_MEDIA_FORMATS[currentDungeonFolder][npcIndex]
+                    if CUSTOM_MARKER_DUNGEONS[currentDungeonFolder] then
+                        local selectedMarker = db.selectedMarkers[currentDungeonFolder][npc.name]
+                        mediaFormat = mediaFormat[selectedMarker] or mediaFormat[npc.marker] or mediaFormat.diamond
+                    end
+                    overlay:SetFormattedText(mediaFormat, unitName, size, size)
                     overlay:Show()
                 end
             end
@@ -319,8 +361,12 @@ local function ResetSettings()
     for _, folder in ipairs(DUNGEON_FOLDERS) do
         db.enabledDungeons[folder] = true
         db.enabledNPCs[folder] = {}
+        db.selectedMarkers[folder] = {}
         for _, npc in ipairs(NPC_DATABASE[folder]) do
             db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+            if CUSTOM_MARKER_DUNGEONS[folder] then
+                db.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
+            end
         end
     end
     db.npcDefaultsVersion = NPC_DEFAULTS_VERSION
@@ -499,21 +545,92 @@ local function SetAllNPCMarkers(folder, enabled)
     RefreshNameplates()
 end
 
+local function GetSelectedMarker(folder, npc)
+    local selectedMarker = db.selectedMarkers[folder][npc.name]
+    if MARKER_OPTION_BY_ID[selectedMarker] then return selectedMarker end
+    return npc.marker or "diamond"
+end
+
+local function SetSelectedMarker(folder, npc, markerID)
+    if not MARKER_OPTION_BY_ID[markerID] then return end
+    db.selectedMarkers[folder][npc.name] = markerID
+    RefreshSettingsControls()
+    RefreshNameplates()
+end
+
+local function OpenMarkerMenu(owner, folder, npc)
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
+            rootDescription:CreateTitle(npc.name)
+            for _, marker in ipairs(MARKER_OPTIONS) do
+                local menuMarker = marker
+                local icon = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. menuMarker.texture .. ".tga:18:18|t "
+                local prefix = GetSelectedMarker(folder, npc) == menuMarker.id and "|cff33ff99> |r" or ""
+                rootDescription:CreateButton(prefix .. icon .. menuMarker.label, function()
+                    SetSelectedMarker(folder, npc, menuMarker.id)
+                end)
+            end
+        end)
+        return
+    end
+
+    local selectedMarker = GetSelectedMarker(folder, npc)
+    for index, marker in ipairs(MARKER_OPTIONS) do
+        if marker.id == selectedMarker then
+            SetSelectedMarker(folder, npc, MARKER_OPTIONS[index % #MARKER_OPTIONS + 1].id)
+            return
+        end
+    end
+end
+
 local function CreateNPCMarkerCheckbox(parent, folderIndex, npcIndex, folder, npc)
     local name = "PriorityMarkerIconsNPC" .. folderIndex .. "_" .. npcIndex
     local checkbox = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
     checkbox:SetSize(24, 24)
     checkbox:SetPoint("TOPLEFT", 4, -(npcIndex - 1) * 32)
 
-    local preview = checkbox:CreateTexture(nil, "ARTWORK")
-    preview:SetSize(22, 22)
-    preview:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
-    preview:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\" .. npc.name .. ".tga")
+    local previewAnchor = checkbox
+    if CUSTOM_MARKER_DUNGEONS[folder] then
+        local selector = CreateFrame("Button", name .. "MarkerSelector", parent, "UIPanelButtonTemplate")
+        selector:SetSize(54, 26)
+        selector:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
+
+        local selectorIcon = selector:CreateTexture(nil, "ARTWORK")
+        selectorIcon:SetSize(20, 20)
+        selectorIcon:SetPoint("LEFT", 5, 0)
+        local arrow = selector:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        arrow:SetPoint("RIGHT", -7, 0)
+        arrow:SetText("v")
+
+        function selector:RefreshFromDB()
+            if not db then return end
+            local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
+            selectorIcon:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. marker.texture .. ".tga")
+        end
+        selector:SetScript("OnShow", selector.RefreshFromDB)
+        selector:SetScript("OnClick", function(self) OpenMarkerMenu(self, folder, npc) end)
+        selector:SetScript("OnEnter", function(self)
+            local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(npc.name .. ": " .. marker.label)
+            GameTooltip:AddLine("Click to choose a different local marker.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        selector:SetScript("OnLeave", GameTooltip_Hide)
+        settingsControls[#settingsControls + 1] = selector
+        selector:RefreshFromDB()
+        previewAnchor = selector
+    else
+        local preview = checkbox:CreateTexture(nil, "ARTWORK")
+        preview:SetSize(22, 22)
+        preview:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
+        preview:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\" .. npc.name .. ".tga")
+        previewAnchor = preview
+    end
 
     local label = checkbox:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    label:SetPoint("LEFT", preview, "RIGHT", 8, 0)
+    label:SetPoint("LEFT", previewAnchor, "RIGHT", 8, 0)
     label:SetText(npc.name)
-    checkbox:SetHitRectInsets(0, -label:GetStringWidth() - 38, 0, 0)
     checkbox:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(npc.name)
@@ -546,7 +663,11 @@ local function CreateNPCSettingsPanels(parentCategory)
         title:SetText(displayName .. " NPC markers")
         local description = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-        description:SetText("Choose which configured NPCs receive a local marker.")
+        if CUSTOM_MARKER_DUNGEONS[panelFolder] then
+            description:SetText("Enable each NPC and click its marker button to choose one of the eight raid icons.")
+        else
+            description:SetText("Choose which configured NPCs receive a local marker.")
+        end
 
         local enableAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
         enableAll:SetSize(110, 24)

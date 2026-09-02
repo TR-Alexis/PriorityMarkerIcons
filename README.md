@@ -20,6 +20,8 @@ visible only to the player running the addon.
 - Detects the active supported dungeon and only checks its texture folder.
 - Provides a draggable `PMI` minimap button for opening the addon options.
 - Allows each configured NPC marker to be enabled or disabled individually.
+- Allows every configured NPC to switch between the eight standard marker
+  icons directly from its in-game settings row.
 
 ## Installation
 
@@ -254,6 +256,10 @@ draggable `PMI` minimap button. Clicking that button opens this panel directly.
 Settings, including NPC visibility and the minimap position, are saved
 account-wide in `PriorityMarkerIconsDB`.
 
+Every dungeon displays a marker selector beside each NPC checkbox. Click it to
+choose Star, Circle, Diamond, Triangle, Moon, Square, Cross, or Skull. The
+choice is applied immediately and saved account-wide.
+
 ## How it works
 
 Recent WoW versions can mark NPC names, GUIDs, and NPC IDs as secret values
@@ -273,6 +279,14 @@ For per-NPC visibility, every marker also has a dedicated matching path:
 
 ```text
 Media\NPCs\Den of Nalorakk\01\Earthwhisper Tender.tga
+```
+
+Every supported dungeon has one matching path for each selectable marker:
+
+```text
+Media\NPCs\Murder Row\04\moon\Fel Invoker.tga
+Media\NPCs\Murder Row\04\skull\Fel Invoker.tga
+Media\NPCs\Altar of Fangs\01\diamond\High Evolutionist.tga
 ```
 
 The checkbox enables or disables that known path. The secret unit name is still
