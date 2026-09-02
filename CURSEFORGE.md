@@ -10,18 +10,33 @@ Automatically highlights priority dungeon enemies with local icons above their n
 
 ## Description
 
-Priority Marker Icons is a lightweight World of Warcraft Retail addon that places
-clear, local icons above the nameplates of important enemies in supported
-dungeons. It helps players identify priority targets, dangerous casters,
-summons, and totems at a glance without requiring mouseover actions, target
-changes, macros, or additional combat key presses.
+Priority Marker Icons (PMI) is a lightweight World of Warcraft Retail addon that
+places clear, local icons above important enemy nameplates in supported
+dungeons. It helps identify priority targets, dangerous casters, summons, and
+totems without changing targets or requiring additional actions during combat.
 
-Unlike traditional auto-marking addons, Priority Marker Icons does not assign or
-modify Blizzard raid markers. Its icons are rendered locally and are visible
-only to the player running the addon, so they cannot interfere with party or
-raid marker assignments.
+PMI does not assign or modify Blizzard raid markers. Its icons are rendered
+locally and are visible only to the player running the addon, so they do not
+consume party markers or interfere with the group's marker assignments.
 
-The addon includes predefined priority targets for:
+## Key features
+
+- Automatic local icons above configured enemy nameplates
+- Familiar Skull, Cross, Diamond, Moon, Square, Star, Circle, and Triangle icons
+- No targeting, mouseover, macros, or extra key presses required for automatic icons
+- Does not consume or overwrite shared Blizzard raid markers
+- Detects the active dungeon before Mythic+ starts and loads only its NPC folder
+- Keeps the detected folder cached if NPC identity information becomes secret
+- Persistent settings for icon size, vertical position, opacity, and visibility
+- Optional combat-only mode and per-dungeon database toggles
+- Per-NPC marker toggles with icon previews for every supported dungeon
+- Optional NPC additions remain disabled until the player enables them (156
+  configured NPCs in the current database)
+- Draggable `PMI` minimap button that opens the addon settings
+- Test, status, mouseover inspection, and debug tools
+- No external communication, account connection, or data collection
+
+## Supported dungeons
 
 - Den of Nalorakk
 - King's Rest
@@ -32,41 +47,69 @@ The addon includes predefined priority targets for:
 - Ruby Life Pools
 - Temple of Sethraliss
 
-Priority Marker Icons uses familiar marker shapes such as Skull, Cross, Diamond,
-Moon, Square, Star, Circle, and Triangle. Each supported NPC is assigned a
-consistent marker that appears automatically when its nameplate becomes
-available.
+## Mythic+ behavior
 
-Features:
+PMI detects the dungeon when the player enters the instance, before the
+Mythic+ challenge begins. It stores the matching dungeon folder and continues
+using it after `CHALLENGE_MODE_START`, even if identity-related values later
+become unavailable to addon code. The cache is cleared when the player leaves
+the instance or enters a different one.
 
-- Automatic local icons above configured enemy nameplates
-- No targeting, mouseover, macros, or extra combat keybinds required
-- Does not consume or overwrite shared Blizzard raid markers
-- Lightweight filesystem-based NPC database
-- Separate NPC definitions for each supported dungeon
-- Test mode for checking icon placement
-- Mouseover diagnostic command for troubleshooting
-- Persistent in-game settings for size, position, opacity, and visibility
-- Draggable PMI minimap shortcut for opening addon options
-- Automatic active-dungeon filtering
-- Pre-Mythic+ dungeon detection with a protected in-instance folder cache
-- Status and debug commands for troubleshooting
+This allows PMI to check only the relevant dungeon folder instead of scanning
+the complete database on every nameplate update.
 
-Commands:
+## Configuration
+
+Click the draggable `PMI` minimap button or enter `/pmi options` to open the
+settings panel. Available options include:
+
+- Enable or disable automatic icons
+- Show icons only in supported dungeons
+- Show icons only during combat
+- Change icon size, vertical offset, and opacity
+- Enable or disable individual dungeon databases
+- Enable or disable the marker for each configured NPC
+- Show or hide the minimap button
+- Enable diagnostic messages
+- Restore the default configuration
+
+Settings, individual NPC visibility, and the minimap button position are saved
+account-wide.
+
+## Commands
 
 - `/pmi` or `/prioritymarkericons` displays addon instructions.
-- `/pmi test` toggles test icons above visible nameplates.
 - `/pmi options` opens the in-game settings panel.
+- `/pmi test` displays all marker symbols above visible nameplates.
+- `/pmi status` reports the active instance, cached folder, map, and settings.
+- `/pmi inspect` reports available information for the mouseover unit.
+- `/pmi size 36` changes icon size from 16 to 64 pixels.
+- `/pmi offset 6` changes the vertical offset from -20 to 60 pixels.
+- `/pmi alpha 1` changes opacity from 0.2 to 1.
+- `/pmi dungeononly` toggles supported-dungeon-only mode.
+- `/pmi combatonly` toggles combat-only mode.
 - `/pmi minimap` shows or hides the minimap shortcut.
-- `/pmi status` reports the active instance, folder, map, and settings.
-- `/pmi inspect` reports identity information available for the unit under the
-  cursor.
+- `/pmi debug` toggles diagnostic messages.
+- `/pmi reset` restores default settings.
 
 The legacy `/am` and `/automarker` aliases are also supported.
 
-The included NPC database currently uses English NPC names and is intended for
-the English World of Warcraft client. Icons are local and require enemy
-nameplates to be enabled.
+## Installation
+
+1. Extract the `PriorityMarkerIcons` folder into
+   `_retail_\Interface\AddOns\`.
+2. Start World of Warcraft or enter `/reload` if the game is already running.
+3. Make sure enemy nameplates are enabled.
+4. Enter a supported dungeon. Configured priority icons appear automatically.
+
+## Important notes
+
+- Enemy nameplates must be enabled.
+- Icons are local; party members need their own copy of PMI to see them.
+- The current NPC database uses English NPC filenames and is intended for the
+  English game client.
+- NPCs that share the same name also share the same icon because secret NPC IDs
+  cannot be compared safely during Mythic+.
 
 ## Project License
 
