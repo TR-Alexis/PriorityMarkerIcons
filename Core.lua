@@ -1,4 +1,5 @@
-local addonName = ...
+local addonName, addon = ...
+local NPC_DATABASE = addon.NPC_DATABASE
 
 BINDING_HEADER_PRIORITYMARKERICONS = "Priority Marker Icons"
 BINDING_NAME_PRIORITYMARKERICONS_TRIANGLE = "Mark mouseover with Triangle"
@@ -26,12 +27,13 @@ local DEFAULTS = {
     alpha = 1,
     debug = false,
     enabledDungeons = {},
+    enabledNPCs = {},
     minimap = {
         hide = false,
         angle = 220,
     },
 }
-local MEDIA_FORMATS, TEST_FORMATS = {}, {}
+local LEGACY_MEDIA_FORMATS, NPC_MEDIA_FORMATS, TEST_FORMATS = {}, {}, {}
 local overlays, activeNameplates = {}, {}
 local settingsControls = {}
 local testMode = false
@@ -39,9 +41,17 @@ local challengeModeActive = false
 local currentDungeonFolder, currentInstanceName, currentInstanceID, settingsCategory, db
 local minimapButton
 local UpdateMinimapButtonPosition, UpdateMinimapButtonVisibility
+local MAX_OVERLAYS = #TEST_MARKERS
+local NPC_DEFAULTS_VERSION = 3
 
 for index, folder in ipairs(DUNGEON_FOLDERS) do
-    MEDIA_FORMATS[index] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\%s:%d:%d|t"
+    LEGACY_MEDIA_FORMATS[index] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\%s:%d:%d|t"
+    NPC_MEDIA_FORMATS[folder] = {}
+    local dungeonNPCs = NPC_DATABASE[folder]
+    MAX_OVERLAYS = math.max(MAX_OVERLAYS, #dungeonNPCs)
+    for npcIndex, npc in ipairs(dungeonNPCs) do
+        NPC_MEDIA_FORMATS[folder][npcIndex] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\NPCs\\" .. folder .. "\\" .. npc.path .. "\\%s:%d:%d|t"
+    end
 end
 for index, marker in ipairs(TEST_MARKERS) do
     TEST_FORMATS[index] = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. marker .. ":%d:%d|t"
@@ -70,11 +80,20 @@ end
 
 local function InitializeDatabase()
     PriorityMarkerIconsDB = PriorityMarkerIconsDB or {}
+    local previousNPCDefaultsVersion = tonumber(PriorityMarkerIconsDB.npcDefaultsVersion) or 0
     CopyDefaults(PriorityMarkerIconsDB, DEFAULTS)
     db = PriorityMarkerIconsDB
     for _, folder in ipairs(DUNGEON_FOLDERS) do
         if db.enabledDungeons[folder] == nil then db.enabledDungeons[folder] = true end
+        if type(db.enabledNPCs[folder]) ~= "table" then db.enabledNPCs[folder] = {} end
+        for _, npc in ipairs(NPC_DATABASE[folder]) do
+            local isNewDefault = npc.addedIn and previousNPCDefaultsVersion < npc.addedIn
+            if db.enabledNPCs[folder][npc.name] == nil or isNewDefault then
+                db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+            end
+        end
     end
+    db.npcDefaultsVersion = NPC_DEFAULTS_VERSION
 end
 
 local function CreateMarkerButton(name, markerIndex)
@@ -105,7 +124,7 @@ end
 local function GetOverlays(nameplate)
     if overlays[nameplate] then return overlays[nameplate] end
     local markerOverlays = {}
-    for index = 1, #MEDIA_FORMATS do
+    for index = 1, MAX_OVERLAYS do
         local overlay = nameplate:CreateFontString(nil, "OVERLAY")
         overlay:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
         overlay:SetJustifyH("CENTER")
@@ -192,26 +211,44 @@ local function UpdateNameplate(unitToken)
     local size = db.iconSize
     if testMode then
         local spacing = size + 2
-        local totalWidth = (#markerOverlays - 1) * spacing
-        for index, overlay in ipairs(markerOverlays) do
+        local totalWidth = (#TEST_FORMATS - 1) * spacing
+        for index, format in ipairs(TEST_FORMATS) do
+            local overlay = markerOverlays[index]
             overlay:ClearAllPoints()
             overlay:SetPoint("BOTTOM", anchor, "TOP", (index - 1) * spacing - totalWidth / 2, db.offsetY)
             overlay:SetAlpha(db.alpha)
-            overlay:SetFormattedText(TEST_FORMATS[index], size, size)
+            overlay:SetFormattedText(format, size, size)
             overlay:Show()
         end
     else
         -- Secret unit names may be formatted into texture paths, but must not
         -- be concatenated, compared, or used as Lua table keys.
         local unitName = UnitName(unitToken)
-        for index, overlay in ipairs(markerOverlays) do
-            local folder = DUNGEON_FOLDERS[index]
-            if db.enabledDungeons[folder] and (not currentDungeonFolder or folder == currentDungeonFolder) then
-                overlay:ClearAllPoints()
-                overlay:SetPoint("BOTTOM", anchor, "TOP", 0, db.offsetY)
-                overlay:SetAlpha(db.alpha)
-                overlay:SetFormattedText(MEDIA_FORMATS[index], unitName, size, size)
-                overlay:Show()
+        if currentDungeonFolder and db.enabledDungeons[currentDungeonFolder] then
+            local overlayIndex = 0
+            for npcIndex, npc in ipairs(NPC_DATABASE[currentDungeonFolder]) do
+                if db.enabledNPCs[currentDungeonFolder][npc.name] then
+                    overlayIndex = overlayIndex + 1
+                    local overlay = markerOverlays[overlayIndex]
+                    overlay:ClearAllPoints()
+                    overlay:SetPoint("BOTTOM", anchor, "TOP", 0, db.offsetY)
+                    overlay:SetAlpha(db.alpha)
+                    overlay:SetFormattedText(NPC_MEDIA_FORMATS[currentDungeonFolder][npcIndex], unitName, size, size)
+                    overlay:Show()
+                end
+            end
+        elseif not currentDungeonFolder and not db.onlyInDungeons then
+            -- Outside a detected supported dungeon, retain the legacy folder
+            -- fallback. Per-NPC toggles apply once the dungeon is detected.
+            for index, folder in ipairs(DUNGEON_FOLDERS) do
+                local overlay = markerOverlays[index]
+                if db.enabledDungeons[folder] then
+                    overlay:ClearAllPoints()
+                    overlay:SetPoint("BOTTOM", anchor, "TOP", 0, db.offsetY)
+                    overlay:SetAlpha(db.alpha)
+                    overlay:SetFormattedText(LEGACY_MEDIA_FORMATS[index], unitName, size, size)
+                    overlay:Show()
+                end
             end
         end
     end
@@ -279,7 +316,14 @@ local function ResetSettings()
     wipe(PriorityMarkerIconsDB)
     CopyDefaults(PriorityMarkerIconsDB, DEFAULTS)
     db = PriorityMarkerIconsDB
-    for _, folder in ipairs(DUNGEON_FOLDERS) do db.enabledDungeons[folder] = true end
+    for _, folder in ipairs(DUNGEON_FOLDERS) do
+        db.enabledDungeons[folder] = true
+        db.enabledNPCs[folder] = {}
+        for _, npc in ipairs(NPC_DATABASE[folder]) do
+            db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+        end
+    end
+    db.npcDefaultsVersion = NPC_DEFAULTS_VERSION
     UpdateInstanceContext()
     RefreshNameplates()
     UpdateMinimapButtonPosition()
@@ -447,6 +491,95 @@ local function CreateDungeonCheckbox(parent, name, label, x, y, folder)
     return checkbox
 end
 
+local function SetAllNPCMarkers(folder, enabled)
+    for _, npc in ipairs(NPC_DATABASE[folder]) do
+        db.enabledNPCs[folder][npc.name] = enabled
+    end
+    RefreshSettingsControls()
+    RefreshNameplates()
+end
+
+local function CreateNPCMarkerCheckbox(parent, folderIndex, npcIndex, folder, npc)
+    local name = "PriorityMarkerIconsNPC" .. folderIndex .. "_" .. npcIndex
+    local checkbox = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
+    checkbox:SetSize(24, 24)
+    checkbox:SetPoint("TOPLEFT", 4, -(npcIndex - 1) * 32)
+
+    local preview = checkbox:CreateTexture(nil, "ARTWORK")
+    preview:SetSize(22, 22)
+    preview:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
+    preview:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\" .. npc.name .. ".tga")
+
+    local label = checkbox:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    label:SetPoint("LEFT", preview, "RIGHT", 8, 0)
+    label:SetText(npc.name)
+    checkbox:SetHitRectInsets(0, -label:GetStringWidth() - 38, 0, 0)
+    checkbox:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(npc.name)
+        GameTooltip:AddLine("Show or hide this NPC's local priority marker.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    checkbox:SetScript("OnLeave", GameTooltip_Hide)
+    function checkbox:RefreshFromDB()
+        self:SetChecked(db and db.enabledNPCs[folder][npc.name])
+    end
+    checkbox:SetScript("OnShow", checkbox.RefreshFromDB)
+    checkbox:SetScript("OnClick", function(self)
+        db.enabledNPCs[folder][npc.name] = self:GetChecked() and true or false
+        RefreshNameplates()
+    end)
+    settingsControls[#settingsControls + 1] = checkbox
+    checkbox:RefreshFromDB()
+    return checkbox
+end
+
+local function CreateNPCSettingsPanels(parentCategory)
+    for folderIndex, folder in ipairs(DUNGEON_FOLDERS) do
+        local panelFolder = folder
+        local panel = CreateFrame("Frame", "PriorityMarkerIconsNPCPanel" .. folderIndex)
+        local displayName = panelFolder == "Kings Rest" and "King's Rest" or panelFolder
+        panel.name = displayName .. " NPCs"
+
+        local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        title:SetPoint("TOPLEFT", 16, -16)
+        title:SetText(displayName .. " NPC markers")
+        local description = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+        description:SetText("Choose which configured NPCs receive a local marker.")
+
+        local enableAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        enableAll:SetSize(110, 24)
+        enableAll:SetPoint("TOPLEFT", 16, -58)
+        enableAll:SetText("Enable all")
+        enableAll:SetScript("OnClick", function() SetAllNPCMarkers(panelFolder, true) end)
+
+        local disableAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        disableAll:SetSize(110, 24)
+        disableAll:SetPoint("LEFT", enableAll, "RIGHT", 8, 0)
+        disableAll:SetText("Disable all")
+        disableAll:SetScript("OnClick", function() SetAllNPCMarkers(panelFolder, false) end)
+
+        local scrollFrame = CreateFrame("ScrollFrame", "PriorityMarkerIconsNPCScroll" .. folderIndex, panel, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", 16, -92)
+        scrollFrame:SetPoint("BOTTOMRIGHT", -32, 16)
+        local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+        scrollChild:SetSize(560, math.max(1, #NPC_DATABASE[panelFolder] * 32))
+        scrollFrame:SetScrollChild(scrollChild)
+
+        for npcIndex, npc in ipairs(NPC_DATABASE[panelFolder]) do
+            CreateNPCMarkerCheckbox(scrollChild, folderIndex, npcIndex, panelFolder, npc)
+        end
+
+        if Settings and Settings.RegisterCanvasLayoutSubcategory and parentCategory then
+            Settings.RegisterCanvasLayoutSubcategory(parentCategory, panel, displayName)
+        elseif InterfaceOptions_AddCategory then
+            panel.parent = "Priority Marker Icons"
+            InterfaceOptions_AddCategory(panel)
+        end
+    end
+end
+
 local function CreateMinimapCheckbox(parent, x, y)
     local checkbox = CreateFrame("CheckButton", "PriorityMarkerIconsMinimapCheck", parent, "UICheckButtonTemplate")
     checkbox:SetSize(24, 24)
@@ -511,6 +644,11 @@ local function CreateSettingsPanel()
         local displayName = folder == "Kings Rest" and "King's Rest" or folder
         CreateDungeonCheckbox(panel, "PriorityMarkerIconsDungeon" .. index, displayName, 330, -72 - index * 32, folder)
     end
+    local npcHint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    npcHint:SetPoint("TOPLEFT", 330, -370)
+    npcHint:SetWidth(280)
+    npcHint:SetJustifyH("LEFT")
+    npcHint:SetText("Expand Priority Marker Icons in the left navigation to configure individual NPC markers.")
     local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     reset:SetSize(150, 24)
     reset:SetPoint("TOPLEFT", 16, -435)
@@ -519,8 +657,10 @@ local function CreateSettingsPanel()
     if Settings and Settings.RegisterCanvasLayoutCategory then
         settingsCategory = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(settingsCategory)
+        CreateNPCSettingsPanels(settingsCategory)
     elseif InterfaceOptions_AddCategory then
         InterfaceOptions_AddCategory(panel)
+        CreateNPCSettingsPanels(nil)
     end
 end
 

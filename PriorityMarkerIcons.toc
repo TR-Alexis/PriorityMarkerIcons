@@ -1,9 +1,10 @@
 ## Interface: 120100, 120007, 120005, 120001
 ## Title: Priority Marker Icons
 ## Notes: Automatically displays local icons above important NPC nameplates.
-## Version: 1.1.0
+## Version: 1.4.0
 ## Category: Combat
 ## SavedVariables: PriorityMarkerIconsDB
 
+Database.lua
 Core.lua
 Bindings.xml
