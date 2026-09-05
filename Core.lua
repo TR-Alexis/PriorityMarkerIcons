@@ -29,6 +29,17 @@ local MARKER_OPTIONS = {
     { id = "skull", label = "Skull", texture = "_skull" },
 }
 local MARKER_OPTION_BY_ID = {}
+local DUNGEON_CODES = {
+    ["Kings Rest"] = "KR",
+    ["Den of Nalorakk"] = "DN",
+    ["Murder Row"] = "MR",
+    ["The Blinding Vale"] = "BV",
+    ["Voidscar Arena"] = "VA",
+    ["Altar of Fangs"] = "AF",
+    ["Ruby Life Pools"] = "RL",
+    ["Temple of Sethraliss"] = "TS",
+}
+local DUNGEON_BY_CODE = {}
 local CUSTOM_MARKER_DUNGEONS = {
     ["Kings Rest"] = true,
     ["Den of Nalorakk"] = true,
@@ -58,6 +69,7 @@ local DEFAULTS = {
 local LEGACY_MEDIA_FORMATS, NPC_MEDIA_FORMATS, TEST_FORMATS = {}, {}, {}
 local overlays, activeNameplates = {}, {}
 local settingsControls = {}
+local dungeonPanelStates = {}
 local testMode = false
 local challengeModeActive = false
 local currentDungeonFolder, currentInstanceName, currentInstanceID, settingsCategory, db
@@ -68,6 +80,9 @@ local NPC_DEFAULTS_VERSION = 3
 
 for _, marker in ipairs(MARKER_OPTIONS) do
     MARKER_OPTION_BY_ID[marker.id] = marker
+end
+for folder, code in pairs(DUNGEON_CODES) do
+    DUNGEON_BY_CODE[code] = folder
 end
 
 for index, folder in ipairs(DUNGEON_FOLDERS) do
@@ -111,25 +126,64 @@ local function CopyDefaults(target, defaults)
     end
 end
 
-local function InitializeDatabase()
-    PriorityMarkerIconsDB = PriorityMarkerIconsDB or {}
-    local previousNPCDefaultsVersion = tonumber(PriorityMarkerIconsDB.npcDefaultsVersion) or 0
-    CopyDefaults(PriorityMarkerIconsDB, DEFAULTS)
-    db = PriorityMarkerIconsDB
+local function CopyTable(source)
+    local copy = {}
+    if type(source) ~= "table" then return copy end
+    for key, value in pairs(source) do
+        copy[key] = type(value) == "table" and CopyTable(value) or value
+    end
+    return copy
+end
+
+local function CreateDefaultConfiguration()
+    local configuration = {
+        enabledDungeons = {},
+        enabledNPCs = {},
+        selectedMarkers = {},
+    }
     for _, folder in ipairs(DUNGEON_FOLDERS) do
-        if db.enabledDungeons[folder] == nil then db.enabledDungeons[folder] = true end
-        if type(db.enabledNPCs[folder]) ~= "table" then db.enabledNPCs[folder] = {} end
-        if type(db.selectedMarkers[folder]) ~= "table" then db.selectedMarkers[folder] = {} end
+        configuration.enabledDungeons[folder] = true
+        configuration.enabledNPCs[folder] = {}
+        configuration.selectedMarkers[folder] = {}
         for _, npc in ipairs(NPC_DATABASE[folder]) do
-            local isNewDefault = npc.addedIn and previousNPCDefaultsVersion < npc.addedIn
-            if db.enabledNPCs[folder][npc.name] == nil or isNewDefault then
-                db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+            configuration.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
+            configuration.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
+        end
+    end
+    return configuration
+end
+
+local function NormalizeConfiguration(configuration)
+    if type(configuration.enabledDungeons) ~= "table" then configuration.enabledDungeons = {} end
+    if type(configuration.enabledNPCs) ~= "table" then configuration.enabledNPCs = {} end
+    if type(configuration.selectedMarkers) ~= "table" then configuration.selectedMarkers = {} end
+    for _, folder in ipairs(DUNGEON_FOLDERS) do
+        if configuration.enabledDungeons[folder] == nil then configuration.enabledDungeons[folder] = true end
+        if type(configuration.enabledNPCs[folder]) ~= "table" then configuration.enabledNPCs[folder] = {} end
+        if type(configuration.selectedMarkers[folder]) ~= "table" then configuration.selectedMarkers[folder] = {} end
+        for _, npc in ipairs(NPC_DATABASE[folder]) do
+            if configuration.enabledNPCs[folder][npc.name] == nil then
+                configuration.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
             end
-            if CUSTOM_MARKER_DUNGEONS[folder] and not MARKER_OPTION_BY_ID[db.selectedMarkers[folder][npc.name]] then
-                db.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
+            if not MARKER_OPTION_BY_ID[configuration.selectedMarkers[folder][npc.name]] then
+                configuration.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
             end
         end
     end
+end
+
+local function InitializeDatabase()
+    PriorityMarkerIconsDB = PriorityMarkerIconsDB or {}
+    local activeProfile = PriorityMarkerIconsDB.profiles and PriorityMarkerIconsDB.profiles[PriorityMarkerIconsDB.activeProfile]
+    if tonumber(PriorityMarkerIconsDB.profileVersion) == 1 and type(activeProfile) == "table" then
+        PriorityMarkerIconsDB.enabledDungeons = CopyTable(activeProfile.enabledDungeons)
+        PriorityMarkerIconsDB.enabledNPCs = CopyTable(activeProfile.enabledNPCs)
+        PriorityMarkerIconsDB.selectedMarkers = CopyTable(activeProfile.selectedMarkers)
+    end
+    CopyDefaults(PriorityMarkerIconsDB, DEFAULTS)
+    db = PriorityMarkerIconsDB
+    NormalizeConfiguration(db)
+    db.profiles, db.activeProfile, db.profileVersion = nil, nil, nil
     db.npcDefaultsVersion = NPC_DEFAULTS_VERSION
 end
 
@@ -354,22 +408,291 @@ local function RefreshSettingsControls()
     end
 end
 
-local function ResetSettings()
-    wipe(PriorityMarkerIconsDB)
-    CopyDefaults(PriorityMarkerIconsDB, DEFAULTS)
-    db = PriorityMarkerIconsDB
-    for _, folder in ipairs(DUNGEON_FOLDERS) do
-        db.enabledDungeons[folder] = true
-        db.enabledNPCs[folder] = {}
-        db.selectedMarkers[folder] = {}
-        for _, npc in ipairs(NPC_DATABASE[folder]) do
-            db.enabledNPCs[folder][npc.name] = npc.defaultEnabled ~= false
-            if CUSTOM_MARKER_DUNGEONS[folder] then
-                db.selectedMarkers[folder][npc.name] = npc.marker or "diamond"
+local function ClearBulkSelections()
+    for _, state in pairs(dungeonPanelStates) do
+        wipe(state.selectedNPCs)
+    end
+end
+
+local MARKER_CODE_BY_ID = {
+    star = "1", circle = "2", diamond = "3", triangle = "4",
+    moon = "5", square = "6", cross = "7", skull = "8",
+}
+local MARKER_ID_BY_CODE = {
+    ["1"] = "star", ["2"] = "circle", ["3"] = "diamond", ["4"] = "triangle",
+    ["5"] = "moon", ["6"] = "square", ["7"] = "cross", ["8"] = "skull",
+}
+
+local function SerializeDungeon(folder)
+    local enabledBits, markerCodes = {}, {}
+    for _, npc in ipairs(NPC_DATABASE[folder]) do
+        enabledBits[#enabledBits + 1] = db.enabledNPCs[folder][npc.name] and "1" or "0"
+        local selectedMarker = db.selectedMarkers[folder][npc.name]
+        if not MARKER_OPTION_BY_ID[selectedMarker] then selectedMarker = npc.marker or "diamond" end
+        markerCodes[#markerCodes + 1] = MARKER_CODE_BY_ID[selectedMarker] or "3"
+    end
+    return table.concat(enabledBits), table.concat(markerCodes)
+end
+
+local function ExportDungeon(folder)
+    local enabledBits, markerCodes = SerializeDungeon(folder)
+    return "PMID3" .. DUNGEON_CODES[folder] .. (db.enabledDungeons[folder] and "1" or "0") .. enabledBits .. markerCodes
+end
+
+local function DecodeDungeonImport(serialized)
+    serialized = strtrim(serialized or ""):gsub("%s+", ""):upper()
+
+    local folder, dungeonEnabled, enabledBits, markerCodes
+    local compactDungeon = serialized:match("PMID3[A-Z][A-Z]%d+")
+    if compactDungeon then
+        serialized = compactDungeon
+        folder = DUNGEON_BY_CODE[serialized:sub(6, 7)]
+        local dungeonNPCs = folder and NPC_DATABASE[folder]
+        local expectedLength = dungeonNPCs and (8 + #dungeonNPCs * 2) or 0
+        if not folder or #serialized ~= expectedLength then return nil, "invalid or incompatible dungeon import string." end
+        dungeonEnabled = serialized:sub(8, 8)
+        local enabledEnd = 8 + #dungeonNPCs
+        enabledBits = serialized:sub(9, enabledEnd)
+        markerCodes = serialized:sub(enabledEnd + 1)
+    else
+        -- Continue accepting dungeon strings from the 1.6.0 test builds.
+        local compactLegacy = serialized:match("PMID2%d+")
+        if compactLegacy then
+            serialized = compactLegacy
+            folder = DUNGEON_FOLDERS[tonumber(serialized:sub(6, 6)) or 0]
+            local dungeonNPCs = folder and NPC_DATABASE[folder]
+            local expectedLength = dungeonNPCs and (7 + #dungeonNPCs * 2) or 0
+            if not folder or #serialized ~= expectedLength then return nil, "invalid or incompatible dungeon import string." end
+            dungeonEnabled = serialized:sub(7, 7)
+            local enabledEnd = 7 + #dungeonNPCs
+            enabledBits = serialized:sub(8, enabledEnd)
+            markerCodes = serialized:sub(enabledEnd + 1)
+        else
+            serialized = serialized:gsub("||", "|")
+            local parts = { strsplit("|", serialized) }
+            if parts[1] ~= "PMID1" or #parts ~= 5 then
+                if serialized:match("PMI[12]") then
+                    return nil, "profile imports are no longer supported; import a PMID3 dungeon string."
+                end
+                return nil, "unknown import format. Expected a PMID3 dungeon string."
             end
+            folder = DUNGEON_FOLDERS[tonumber(parts[2]) or 0]
+            dungeonEnabled, enabledBits, markerCodes = parts[3], parts[4], parts[5]
         end
     end
-    db.npcDefaultsVersion = NPC_DEFAULTS_VERSION
+
+    local dungeonNPCs = folder and NPC_DATABASE[folder]
+    if not dungeonNPCs or (dungeonEnabled ~= "0" and dungeonEnabled ~= "1")
+        or #enabledBits ~= #dungeonNPCs or #markerCodes ~= #dungeonNPCs
+        or enabledBits:find("[^01]") or markerCodes:find("[^12345678]") then
+        return nil, "invalid or incompatible dungeon import string."
+    end
+    return folder, dungeonEnabled, enabledBits, markerCodes, serialized
+end
+
+local function ApplySerializedDungeon(targetProfile, folder, dungeonEnabled, enabledBits, markerCodes)
+    local dungeonNPCs = NPC_DATABASE[folder]
+    if (dungeonEnabled ~= "0" and dungeonEnabled ~= "1") or #enabledBits ~= #dungeonNPCs or #markerCodes ~= #dungeonNPCs then
+        return false
+    end
+    if enabledBits:find("[^01]") or markerCodes:find("[^12345678]") then return false end
+
+    targetProfile.enabledDungeons[folder] = dungeonEnabled == "1"
+    for index, npc in ipairs(dungeonNPCs) do
+        targetProfile.enabledNPCs[folder][npc.name] = enabledBits:sub(index, index) == "1"
+        targetProfile.selectedMarkers[folder][npc.name] = MARKER_ID_BY_CODE[markerCodes:sub(index, index)]
+    end
+    return true
+end
+
+local function ImportDungeon(serialized)
+    local imported = {
+        enabledDungeons = CopyTable(db.enabledDungeons),
+        enabledNPCs = CopyTable(db.enabledNPCs),
+        selectedMarkers = CopyTable(db.selectedMarkers),
+    }
+    NormalizeConfiguration(imported)
+
+    local folder, decodedValue, enabledBits, markerCodes = DecodeDungeonImport(serialized)
+    if not folder then
+        Print(decodedValue or "invalid or incompatible dungeon import string.")
+        return false
+    end
+    local dungeonEnabled = decodedValue
+
+    if not folder or not ApplySerializedDungeon(imported, folder, dungeonEnabled, enabledBits, markerCodes) then
+        Print("invalid or incompatible dungeon import string.")
+        return false
+    end
+
+    db.enabledDungeons = imported.enabledDungeons
+    db.enabledNPCs = imported.enabledNPCs
+    db.selectedMarkers = imported.selectedMarkers
+    ClearBulkSelections()
+    RefreshSettingsControls()
+    RefreshNameplates()
+    Print(folder .. " configuration imported.")
+    return true
+end
+
+local function GetPopupEditBox(dialog)
+    return dialog.EditBox or dialog.editBox
+end
+
+StaticPopupDialogs.PRIORITYMARKERICONS_EXPORT = {
+    text = "Copy the %s dungeon configuration (%s):",
+    button1 = CLOSE,
+    hasEditBox = true,
+    editBoxWidth = 420,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self, data)
+        local editBox = GetPopupEditBox(self)
+        editBox:SetMaxLetters(4096)
+        editBox:SetText(data or "")
+        editBox:HighlightText()
+        editBox:SetFocus()
+    end,
+}
+
+StaticPopupDialogs.PRIORITYMARKERICONS_IMPORT = {
+    text = "Paste a Priority Marker Icons dungeon string (for example PMID3KR...):",
+    button1 = "Import",
+    button2 = CANCEL,
+    hasEditBox = true,
+    editBoxWidth = 420,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnShow = function(self)
+        local editBox = GetPopupEditBox(self)
+        editBox:SetMaxLetters(4096)
+        editBox:SetText("")
+        editBox:SetFocus()
+    end,
+    OnAccept = function(self)
+        ImportDungeon(GetPopupEditBox(self):GetText())
+    end,
+    EditBoxOnEnterPressed = function(editBox)
+        ImportDungeon(editBox:GetText())
+        editBox:GetParent():Hide()
+    end,
+}
+
+StaticPopupDialogs.PRIORITYMARKERICONS_SHARE_IMPORT = {
+    text = "Import shared marks for %s?\n\nThis will replace your current configuration for this dungeon.",
+    button1 = "Import",
+    button2 = CANCEL,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    OnAccept = function(_, data)
+        ImportDungeon(data)
+    end,
+}
+
+local function ShowExportDialog(folder)
+    local displayName = folder == "Kings Rest" and "King's Rest" or folder
+    StaticPopup_Show("PRIORITYMARKERICONS_EXPORT", displayName, DUNGEON_CODES[folder], ExportDungeon(folder))
+end
+
+local function ShowImportDialog()
+    StaticPopup_Show("PRIORITYMARKERICONS_IMPORT")
+end
+
+local function FindDungeonFromArgument(argument)
+    argument = strtrim(argument or "")
+    if argument == "" then return currentDungeonFolder end
+    local byCode = DUNGEON_BY_CODE[argument:upper()]
+    if byCode then return byCode end
+    for _, folder in ipairs(DUNGEON_FOLDERS) do
+        local displayName = folder == "Kings Rest" and "King's Rest" or folder
+        if argument:lower() == folder:lower() or argument:lower() == displayName:lower() then return folder end
+    end
+end
+
+local function CreateSharedMarksHyperlink(folder, payload)
+    local displayName = folder == "Kings Rest" and "King's Rest" or folder
+    return "|Haddon:prioritymarkericons:" .. payload .. "|h|cff33ff99[PMI: Marks for " .. displayName .. "]|r|h"
+end
+
+local function ShareDungeonMarks(folder)
+    if not folder or not NPC_DATABASE[folder] then
+        Print("choose a dungeon in settings or use /pmi share KR. Codes: KR, DN, MR, BV, VA, AF, RL, TS.")
+        return
+    end
+    local payload = ExportDungeon(folder)
+    -- WoW does not transmit custom addon hyperlinks through normal chat. Send a
+    -- plain token and convert it into a local clickable link in the chat filter.
+    local message = "[PMI Marks for " .. DUNGEON_CODES[folder] .. ": " .. payload .. "]"
+    if ChatFrame_OpenChat then
+        ChatFrame_OpenChat(message)
+    else
+        Print("could not open the chat edit box.")
+    end
+end
+
+local shareLinksRegistered = false
+local function HandleSharedMarksLink(link)
+    local payload = link and link:match("^addon:prioritymarkericons:(PMID3[A-Z][A-Z]%d+)$")
+    if not payload then return end
+    local folder, errorMessage = DecodeDungeonImport(payload)
+    if not folder then
+        Print(errorMessage or "invalid or incompatible shared marks link.")
+        return
+    end
+    local displayName = folder == "Kings Rest" and "King's Rest" or folder
+    StaticPopup_Show("PRIORITYMARKERICONS_SHARE_IMPORT", displayName, nil, payload)
+end
+
+local function FilterSharedMarksLinks(_, _, message, ...)
+    if type(message) ~= "string" then return end
+    local replaced = false
+    local filteredMessage = message:gsub("%[PMI Marks for ([A-Z][A-Z]): (PMID3[A-Z][A-Z]%d+)%]", function(code, payload)
+        local folder = DUNGEON_BY_CODE[code]
+        local decodedFolder = DecodeDungeonImport(payload)
+        if not folder or decodedFolder ~= folder then
+            return "[PMI Marks for " .. code .. ": " .. payload .. "]"
+        end
+        replaced = true
+        return CreateSharedMarksHyperlink(folder, payload)
+    end)
+    if replaced then return false, filteredMessage, ... end
+end
+
+local function RegisterShareLinks()
+    if shareLinksRegistered then return end
+    shareLinksRegistered = true
+    if EventRegistry and EventRegistry.RegisterCallback then
+        EventRegistry:RegisterCallback("SetItemRef", function(_, link)
+            HandleSharedMarksLink(link)
+        end)
+    elseif hooksecurefunc then
+        hooksecurefunc("SetItemRef", function(link)
+            HandleSharedMarksLink(link)
+        end)
+    end
+
+    local addMessageFilter = ChatFrame_AddMessageEventFilter or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
+    if addMessageFilter then
+        local chatEvents = {
+            "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+            "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_INSTANCE_CHAT",
+            "CHAT_MSG_INSTANCE_CHAT_LEADER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+            "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM", "CHAT_MSG_CHANNEL",
+        }
+        for _, event in ipairs(chatEvents) do
+            addMessageFilter(event, FilterSharedMarksLinks)
+        end
+    end
+end
+
+local function ResetSettings()
+    wipe(PriorityMarkerIconsDB)
+    db = nil
+    InitializeDatabase()
+    ClearBulkSelections()
     UpdateInstanceContext()
     RefreshNameplates()
     UpdateMinimapButtonPosition()
@@ -478,6 +801,7 @@ end
 
 local function ShowHelp()
     Print("commands: /pmi test, status, inspect, options, on, off, reset.")
+    Print("sharing: /pmi share KR, /pmi export KR, /pmi import.")
     Print("appearance: /pmi size 36, /pmi offset 6, /pmi alpha 1.")
     Print("filters: /pmi dungeononly, /pmi combatonly, /pmi minimap, /pmi debug.")
 end
@@ -558,78 +882,93 @@ local function SetSelectedMarker(folder, npc, markerID)
     RefreshNameplates()
 end
 
-local function OpenMarkerMenu(owner, folder, npc)
+local function OpenOptionMenu(owner, title, options, currentID, onSelect)
     if MenuUtil and MenuUtil.CreateContextMenu then
         MenuUtil.CreateContextMenu(owner, function(_, rootDescription)
-            rootDescription:CreateTitle(npc.name)
-            for _, marker in ipairs(MARKER_OPTIONS) do
-                local menuMarker = marker
-                local icon = "|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. menuMarker.texture .. ".tga:18:18|t "
-                local prefix = GetSelectedMarker(folder, npc) == menuMarker.id and "|cff33ff99> |r" or ""
-                rootDescription:CreateButton(prefix .. icon .. menuMarker.label, function()
-                    SetSelectedMarker(folder, npc, menuMarker.id)
+            rootDescription:CreateTitle(title)
+            for _, option in ipairs(options) do
+                local menuOption = option
+                local icon = menuOption.texture and ("|TInterface\\AddOns\\" .. addonName .. "\\Media\\" .. menuOption.texture .. ".tga:18:18|t ") or ""
+                local prefix = currentID == menuOption.id and "|cff33ff99> |r" or ""
+                rootDescription:CreateButton(prefix .. icon .. menuOption.label, function()
+                    onSelect(menuOption.id)
                 end)
             end
         end)
         return
     end
 
-    local selectedMarker = GetSelectedMarker(folder, npc)
-    for index, marker in ipairs(MARKER_OPTIONS) do
-        if marker.id == selectedMarker then
-            SetSelectedMarker(folder, npc, MARKER_OPTIONS[index % #MARKER_OPTIONS + 1].id)
+    for index, option in ipairs(options) do
+        if option.id == currentID then
+            onSelect(options[index % #options + 1].id)
             return
         end
     end
+    if options[1] then onSelect(options[1].id) end
 end
 
-local function CreateNPCMarkerCheckbox(parent, folderIndex, npcIndex, folder, npc)
+local function OpenMarkerMenu(owner, folder, npc)
+    OpenOptionMenu(owner, npc.name, MARKER_OPTIONS, GetSelectedMarker(folder, npc), function(markerID)
+        SetSelectedMarker(folder, npc, markerID)
+    end)
+end
+
+local function ResetDungeon(folder)
+    local defaults = CreateDefaultConfiguration()
+    db.enabledDungeons[folder] = true
+    db.enabledNPCs[folder] = CopyTable(defaults.enabledNPCs[folder])
+    db.selectedMarkers[folder] = CopyTable(defaults.selectedMarkers[folder])
+    RefreshSettingsControls()
+    RefreshNameplates()
+    Print(folder .. " restored to defaults.")
+end
+
+local function CreateNPCMarkerRow(parent, folderIndex, npcIndex, folder, npc, state)
     local name = "PriorityMarkerIconsNPC" .. folderIndex .. "_" .. npcIndex
-    local checkbox = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(540, 30)
+    row.npc = npc
+
+    local selection = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    selection:SetSize(24, 24)
+    selection:SetPoint("LEFT", 0, 0)
+    selection:SetScript("OnClick", function(self)
+        state.selectedNPCs[npc.name] = self:GetChecked() and true or nil
+        state:RefreshFromDB()
+    end)
+    selection:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Select " .. npc.name)
+        GameTooltip:AddLine("Include this NPC in the next bulk marker assignment.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    selection:SetScript("OnLeave", GameTooltip_Hide)
+
+    local checkbox = CreateFrame("CheckButton", name, row, "UICheckButtonTemplate")
     checkbox:SetSize(24, 24)
-    checkbox:SetPoint("TOPLEFT", 4, -(npcIndex - 1) * 32)
+    checkbox:SetPoint("LEFT", 30, 0)
 
-    local previewAnchor = checkbox
-    if CUSTOM_MARKER_DUNGEONS[folder] then
-        local selector = CreateFrame("Button", name .. "MarkerSelector", parent, "UIPanelButtonTemplate")
-        selector:SetSize(54, 26)
-        selector:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
+    local selector = CreateFrame("Button", name .. "MarkerSelector", row, "UIPanelButtonTemplate")
+    selector:SetSize(54, 26)
+    selector:SetPoint("LEFT", 60, 0)
+    local selectorIcon = selector:CreateTexture(nil, "ARTWORK")
+    selectorIcon:SetSize(20, 20)
+    selectorIcon:SetPoint("LEFT", 5, 0)
+    local arrow = selector:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    arrow:SetPoint("RIGHT", -7, 0)
+    arrow:SetText("v")
+    selector:SetScript("OnClick", function(self) OpenMarkerMenu(self, folder, npc) end)
+    selector:SetScript("OnEnter", function(self)
+        local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(npc.name .. ": " .. marker.label)
+        GameTooltip:AddLine("Click to choose a different local marker.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    selector:SetScript("OnLeave", GameTooltip_Hide)
 
-        local selectorIcon = selector:CreateTexture(nil, "ARTWORK")
-        selectorIcon:SetSize(20, 20)
-        selectorIcon:SetPoint("LEFT", 5, 0)
-        local arrow = selector:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        arrow:SetPoint("RIGHT", -7, 0)
-        arrow:SetText("v")
-
-        function selector:RefreshFromDB()
-            if not db then return end
-            local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
-            selectorIcon:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. marker.texture .. ".tga")
-        end
-        selector:SetScript("OnShow", selector.RefreshFromDB)
-        selector:SetScript("OnClick", function(self) OpenMarkerMenu(self, folder, npc) end)
-        selector:SetScript("OnEnter", function(self)
-            local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(npc.name .. ": " .. marker.label)
-            GameTooltip:AddLine("Click to choose a different local marker.", 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        selector:SetScript("OnLeave", GameTooltip_Hide)
-        settingsControls[#settingsControls + 1] = selector
-        selector:RefreshFromDB()
-        previewAnchor = selector
-    else
-        local preview = checkbox:CreateTexture(nil, "ARTWORK")
-        preview:SetSize(22, 22)
-        preview:SetPoint("LEFT", checkbox, "RIGHT", 4, 0)
-        preview:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. folder .. "\\" .. npc.name .. ".tga")
-        previewAnchor = preview
-    end
-
-    local label = checkbox:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    label:SetPoint("LEFT", previewAnchor, "RIGHT", 8, 0)
+    local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    label:SetPoint("LEFT", selector, "RIGHT", 8, 0)
     label:SetText(npc.name)
     checkbox:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -638,17 +977,21 @@ local function CreateNPCMarkerCheckbox(parent, folderIndex, npcIndex, folder, np
         GameTooltip:Show()
     end)
     checkbox:SetScript("OnLeave", GameTooltip_Hide)
-    function checkbox:RefreshFromDB()
-        self:SetChecked(db and db.enabledNPCs[folder][npc.name])
-    end
-    checkbox:SetScript("OnShow", checkbox.RefreshFromDB)
     checkbox:SetScript("OnClick", function(self)
         db.enabledNPCs[folder][npc.name] = self:GetChecked() and true or false
+        RefreshSettingsControls()
         RefreshNameplates()
     end)
-    settingsControls[#settingsControls + 1] = checkbox
-    checkbox:RefreshFromDB()
-    return checkbox
+    function row:RefreshFromDB()
+        if not db then return end
+        selection:SetChecked(state.selectedNPCs[npc.name])
+        checkbox:SetChecked(db.enabledNPCs[folder][npc.name])
+        local marker = MARKER_OPTION_BY_ID[GetSelectedMarker(folder, npc)]
+        selectorIcon:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Media\\" .. marker.texture .. ".tga")
+    end
+    settingsControls[#settingsControls + 1] = row
+    row:RefreshFromDB()
+    return row
 end
 
 local function CreateNPCSettingsPanels(parentCategory)
@@ -663,34 +1006,214 @@ local function CreateNPCSettingsPanels(parentCategory)
         title:SetText(displayName .. " NPC markers")
         local description = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-        if CUSTOM_MARKER_DUNGEONS[panelFolder] then
-            description:SetText("Enable each NPC and click its marker button to choose one of the eight raid icons.")
-        else
-            description:SetText("Choose which configured NPCs receive a local marker.")
-        end
+        description:SetText("Search, filter, select, enable, and assign local markers for this dungeon.")
+
+        local state = {
+            folder = panelFolder,
+            rows = {},
+            selectedNPCs = {},
+            searchText = "",
+            visibilityFilter = "all",
+            markerFilter = "all",
+        }
+        dungeonPanelStates[panelFolder] = state
 
         local enableAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        enableAll:SetSize(110, 24)
+        enableAll:SetSize(78, 24)
         enableAll:SetPoint("TOPLEFT", 16, -58)
         enableAll:SetText("Enable all")
         enableAll:SetScript("OnClick", function() SetAllNPCMarkers(panelFolder, true) end)
 
         local disableAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-        disableAll:SetSize(110, 24)
-        disableAll:SetPoint("LEFT", enableAll, "RIGHT", 8, 0)
+        disableAll:SetSize(78, 24)
+        disableAll:SetPoint("LEFT", enableAll, "RIGHT", 6, 0)
         disableAll:SetText("Disable all")
         disableAll:SetScript("OnClick", function() SetAllNPCMarkers(panelFolder, false) end)
 
+        local resetDungeon = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        resetDungeon:SetSize(88, 24)
+        resetDungeon:SetPoint("LEFT", disableAll, "RIGHT", 6, 0)
+        resetDungeon:SetText("Reset")
+        resetDungeon:SetScript("OnClick", function()
+            wipe(state.selectedNPCs)
+            ResetDungeon(panelFolder)
+        end)
+
+        local exportDungeon = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        exportDungeon:SetSize(65, 24)
+        exportDungeon:SetPoint("LEFT", resetDungeon, "RIGHT", 6, 0)
+        exportDungeon:SetText("Export")
+        exportDungeon:SetScript("OnClick", function() ShowExportDialog(panelFolder) end)
+
+        local importDungeon = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        importDungeon:SetSize(65, 24)
+        importDungeon:SetPoint("LEFT", exportDungeon, "RIGHT", 6, 0)
+        importDungeon:SetText("Import")
+        importDungeon:SetScript("OnClick", ShowImportDialog)
+
+        local shareDungeon = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        shareDungeon:SetSize(104, 24)
+        shareDungeon:SetPoint("LEFT", importDungeon, "RIGHT", 6, 0)
+        shareDungeon:SetText("Share Marks")
+        shareDungeon:SetScript("OnClick", function() ShareDungeonMarks(panelFolder) end)
+
+        local search = CreateFrame("EditBox", "PriorityMarkerIconsSearch" .. folderIndex, panel, "InputBoxTemplate")
+        search:SetSize(205, 24)
+        search:SetPoint("TOPLEFT", 20, -92)
+        search:SetAutoFocus(false)
+        search:SetMaxLetters(60)
+        local searchHint = search:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+        searchHint:SetPoint("LEFT", 6, 0)
+        searchHint:SetText("Search NPC...")
+        search:SetScript("OnTextChanged", function(self)
+            state.searchText = self:GetText():lower()
+            searchHint:SetShown(self:GetText() == "")
+            state:RefreshFromDB()
+        end)
+        search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+        local visibilityOptions = {
+            { id = "all", label = "All NPCs" },
+            { id = "enabled", label = "Enabled only" },
+            { id = "disabled", label = "Disabled only" },
+        }
+        local visibilityButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        visibilityButton:SetSize(130, 24)
+        visibilityButton:SetPoint("LEFT", search, "RIGHT", 12, 0)
+        visibilityButton:SetScript("OnClick", function(self)
+            OpenOptionMenu(self, "Visibility filter", visibilityOptions, state.visibilityFilter, function(filterID)
+                state.visibilityFilter = filterID
+                state:RefreshFromDB()
+            end)
+        end)
+
+        local markerFilterOptions = { { id = "all", label = "All markers" } }
+        for _, marker in ipairs(MARKER_OPTIONS) do markerFilterOptions[#markerFilterOptions + 1] = marker end
+        local markerFilterButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        markerFilterButton:SetSize(130, 24)
+        markerFilterButton:SetPoint("LEFT", visibilityButton, "RIGHT", 8, 0)
+        markerFilterButton:SetScript("OnClick", function(self)
+            OpenOptionMenu(self, "Marker filter", markerFilterOptions, state.markerFilter, function(markerID)
+                state.markerFilter = markerID
+                state:RefreshFromDB()
+            end)
+        end)
+
+        local selectVisible = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        selectVisible:SetSize(105, 24)
+        selectVisible:SetPoint("TOPLEFT", 16, -126)
+        selectVisible:SetText("Select visible")
+        selectVisible:SetScript("OnClick", function()
+            for _, row in ipairs(state.rows) do
+                if row:IsShown() then state.selectedNPCs[row.npc.name] = true end
+            end
+            state:RefreshFromDB()
+        end)
+
+        local clearSelection = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        clearSelection:SetSize(105, 24)
+        clearSelection:SetPoint("LEFT", selectVisible, "RIGHT", 8, 0)
+        clearSelection:SetText("Clear selection")
+        clearSelection:SetScript("OnClick", function()
+            wipe(state.selectedNPCs)
+            state:RefreshFromDB()
+        end)
+
+        local bulkMarker = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        bulkMarker:SetSize(150, 24)
+        bulkMarker:SetPoint("LEFT", clearSelection, "RIGHT", 8, 0)
+        bulkMarker:SetText("Assign selected...")
+        bulkMarker:SetScript("OnClick", function(self)
+            OpenOptionMenu(self, "Assign marker to selected NPCs", MARKER_OPTIONS, nil, function(markerID)
+                local changed = 0
+                for _, npc in ipairs(NPC_DATABASE[panelFolder]) do
+                    if state.selectedNPCs[npc.name] then
+                        db.selectedMarkers[panelFolder][npc.name] = markerID
+                        changed = changed + 1
+                    end
+                end
+                if changed == 0 then
+                    Print("select at least one NPC first.")
+                    return
+                end
+                RefreshSettingsControls()
+                RefreshNameplates()
+                Print(string.format("%d NPC marker(s) changed in %s.", changed, panelFolder))
+            end)
+        end)
+
+        local summary = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        summary:SetPoint("TOPLEFT", 16, -160)
+        summary:SetWidth(550)
+        summary:SetHeight(50)
+        summary:SetJustifyH("LEFT")
+        summary:SetJustifyV("TOP")
+
+        local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        header:SetPoint("TOPLEFT", 17, -211)
+        header:SetText("Select       On       Marker          NPC")
+
         local scrollFrame = CreateFrame("ScrollFrame", "PriorityMarkerIconsNPCScroll" .. folderIndex, panel, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", 16, -92)
+        scrollFrame:SetPoint("TOPLEFT", 16, -226)
         scrollFrame:SetPoint("BOTTOMRIGHT", -32, 16)
         local scrollChild = CreateFrame("Frame", nil, scrollFrame)
         scrollChild:SetSize(560, math.max(1, #NPC_DATABASE[panelFolder] * 32))
         scrollFrame:SetScrollChild(scrollChild)
 
         for npcIndex, npc in ipairs(NPC_DATABASE[panelFolder]) do
-            CreateNPCMarkerCheckbox(scrollChild, folderIndex, npcIndex, panelFolder, npc)
+            state.rows[#state.rows + 1] = CreateNPCMarkerRow(scrollChild, folderIndex, npcIndex, panelFolder, npc, state)
         end
+
+        function state:RefreshFromDB()
+            if not db then return end
+            local enabledCount, selectedCount, visibleCount = 0, 0, 0
+            local markerCounts = {}
+            for _, marker in ipairs(MARKER_OPTIONS) do markerCounts[marker.id] = 0 end
+            for _, npc in ipairs(NPC_DATABASE[panelFolder]) do
+                if db.enabledNPCs[panelFolder][npc.name] then
+                    enabledCount = enabledCount + 1
+                    markerCounts[GetSelectedMarker(panelFolder, npc)] = markerCounts[GetSelectedMarker(panelFolder, npc)] + 1
+                end
+                if state.selectedNPCs[npc.name] then selectedCount = selectedCount + 1 end
+            end
+
+            for _, row in ipairs(state.rows) do
+                local npc = row.npc
+                local enabled = db.enabledNPCs[panelFolder][npc.name]
+                local markerID = GetSelectedMarker(panelFolder, npc)
+                local matchesSearch = state.searchText == "" or npc.name:lower():find(state.searchText, 1, true)
+                local matchesVisibility = state.visibilityFilter == "all" or (state.visibilityFilter == "enabled" and enabled) or (state.visibilityFilter == "disabled" and not enabled)
+                local matchesMarker = state.markerFilter == "all" or state.markerFilter == markerID
+                if matchesSearch and matchesVisibility and matchesMarker then
+                    row:ClearAllPoints()
+                    row:SetPoint("TOPLEFT", 4, -visibleCount * 32)
+                    row:Show()
+                    visibleCount = visibleCount + 1
+                else
+                    row:Hide()
+                end
+                row:RefreshFromDB()
+            end
+            scrollChild:SetHeight(math.max(1, visibleCount * 32))
+
+            local markerSummary, busiestMarker, busiestCount = {}, nil, 0
+            for _, marker in ipairs(MARKER_OPTIONS) do
+                markerSummary[#markerSummary + 1] = marker.label .. " " .. markerCounts[marker.id]
+                if markerCounts[marker.id] > busiestCount then
+                    busiestMarker, busiestCount = marker.label, markerCounts[marker.id]
+                end
+            end
+            local summaryText = string.format("Enabled %d/%d  |  Visible %d  |  Selected %d\n%s", enabledCount, #NPC_DATABASE[panelFolder], visibleCount, selectedCount, table.concat(markerSummary, "  "))
+            if busiestCount >= 5 then
+                summaryText = summaryText .. string.format("\n|cffffcc00Notice: %d enabled NPCs use %s.|r", busiestCount, busiestMarker)
+            end
+            summary:SetText(summaryText)
+            visibilityButton:SetText(state.visibilityFilter == "all" and "All NPCs" or (state.visibilityFilter == "enabled" and "Enabled only" or "Disabled only"))
+            local markerFilter = MARKER_OPTION_BY_ID[state.markerFilter]
+            markerFilterButton:SetText(markerFilter and markerFilter.label or "All markers")
+        end
+        settingsControls[#settingsControls + 1] = state
+        state:RefreshFromDB()
 
         if Settings and Settings.RegisterCanvasLayoutSubcategory and parentCategory then
             Settings.RegisterCanvasLayoutSubcategory(parentCategory, panel, displayName)
@@ -766,7 +1289,7 @@ local function CreateSettingsPanel()
         CreateDungeonCheckbox(panel, "PriorityMarkerIconsDungeon" .. index, displayName, 330, -72 - index * 32, folder)
     end
     local npcHint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    npcHint:SetPoint("TOPLEFT", 330, -370)
+    npcHint:SetPoint("TOPLEFT", 330, -365)
     npcHint:SetWidth(280)
     npcHint:SetJustifyH("LEFT")
     npcHint:SetText("Expand Priority Marker Icons in the left navigation to configure individual NPC markers.")
@@ -812,6 +1335,12 @@ SlashCmdList.PRIORITYMARKERICONS = function(message)
         RefreshSettingsControls()
         Print("minimap button " .. (db.minimap.hide and "hidden" or "shown") .. ".")
     elseif command == "debug" then ToggleSetting("debug", "debug mode")
+    elseif command == "export" then
+        local exportFolder = FindDungeonFromArgument(argument)
+        if exportFolder then ShowExportDialog(exportFolder)
+        else Print("choose a dungeon in settings or use /pmi export KR. Codes: KR, DN, MR, BV, VA, AF, RL, TS.") end
+    elseif command == "import" then ShowImportDialog()
+    elseif command == "share" then ShareDungeonMarks(FindDungeonFromArgument(argument))
     elseif command == "reset" then ResetSettings()
     else ShowHelp() end
 end
@@ -829,6 +1358,7 @@ events:RegisterEvent("CHALLENGE_MODE_START")
 events:SetScript("OnEvent", function(_, event, unitToken)
     if event == "ADDON_LOADED" and unitToken == addonName then
         InitializeDatabase()
+        RegisterShareLinks()
         CreateMinimapButton()
         CreateSettingsPanel()
     elseif event == "PLAYER_LOGIN" then

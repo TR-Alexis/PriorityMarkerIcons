@@ -22,6 +22,12 @@ visible only to the player running the addon.
 - Allows each configured NPC marker to be enabled or disabled individually.
 - Allows every configured NPC to switch between the eight standard marker
   icons directly from its in-game settings row.
+- Imports and exports individual dungeon configurations using recognizable
+  dungeon codes.
+- Shares a dungeon configuration as a clickable in-game chat link, with a
+  confirmation before another PMI user imports it.
+- Provides NPC search, visibility and marker filters, multi-selection, bulk
+  marker assignment, per-dungeon reset controls, and live dungeon summaries.
 
 ## Installation
 
@@ -236,6 +242,11 @@ them apart.
 - `/pmi combatonly` — Toggle display only while in combat.
 - `/pmi minimap` — Show or hide the minimap options button.
 - `/pmi debug` — Toggle diagnostic event messages.
+- `/pmi export KR` — Export one dungeon using its code: KR, DN, MR, BV, VA,
+  AF, RL, or TS. With no code, exports the currently detected dungeon.
+- `/pmi import` — Open the dungeon import dialog.
+- `/pmi share KR` — Prepare a King's Rest marks message in the chat edit box.
+  With no code, shares the currently detected dungeon.
 - `/pmi reset` — Restore default settings.
 
 The legacy `/am` and `/automarker` aliases are also supported.
@@ -259,6 +270,31 @@ account-wide in `PriorityMarkerIconsDB`.
 Every dungeon displays a marker selector beside each NPC checkbox. Click it to
 choose Star, Circle, Diamond, Triangle, Moon, Square, Cross, or Skull. The
 choice is applied immediately and saved account-wide.
+
+Each dungeon page can search NPC names, show all/enabled/disabled NPCs, filter
+by marker, reset only that dungeon, export or import its configuration, and use
+`Share Marks` to place a clickable link in chat. Use the first
+checkbox in a row to select multiple NPCs, then choose `Assign selected...` to
+apply one marker to all of them. `Select visible` makes it easy to combine
+search and filters with bulk changes. A live summary reports enabled, visible,
+and selected counts plus usage totals for all eight markers.
+
+Dungeon strings begin with `PMID3` followed by a recognizable two-letter code,
+for example `PMID3KR` for King's Rest and `PMID3MR` for Murder Row. The
+clipboard-safe format uses only letters and numbers, and the code lets PMI
+detect the destination dungeon automatically. Imports are validated before
+they replace data. Legacy `PMID1` and `PMID2` dungeon strings are also accepted.
+
+To share without copying a string, click `Share Marks`, choose the desired chat
+channel, and send the prepared message. PMI converts that plain message into a
+clickable `[PMI: Marks for ...]` link when it appears in chat. A player with PMI
+installed can click it, review the dungeon name, and confirm the import. Only
+that dungeon's settings are replaced. Players without PMI see the transport
+text, including the recognizable dungeon code.
+
+Dungeon codes: KR = King's Rest, DN = Den of Nalorakk, MR = Murder Row,
+BV = The Blinding Vale, VA = Voidscar Arena, AF = Altar of Fangs,
+RL = Ruby Life Pools, and TS = Temple of Sethraliss.
 
 ## How it works
 
