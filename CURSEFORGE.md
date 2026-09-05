@@ -30,11 +30,17 @@ consume party markers or interfere with the group's marker assignments.
 - Persistent settings for icon size, vertical position, opacity, and visibility
 - Optional combat-only mode and per-dungeon database toggles
 - Per-NPC marker toggles with icon previews for every supported dungeon
+- Per-NPC selection of any of the eight standard marker icons
+- Clipboard-safe per-dungeon import/export strings with recognizable dungeon codes
+- Clickable in-game chat links for sharing one dungeon's marks with other PMI users
+- NPC search plus enabled, disabled, and marker filters
+- Multi-selection and bulk marker assignment
+- Live per-dungeon summaries with marker usage notices
 - Optional NPC additions remain disabled until the player enables them (156
   configured NPCs in the current database)
 - Draggable `PMI` minimap button that opens the addon settings
 - Test, status, mouseover inspection, and debug tools
-- No external communication, account connection, or data collection
+- No background communication, account connection, or data collection
 
 ## Supported dungeons
 
@@ -69,6 +75,12 @@ settings panel. Available options include:
 - Change icon size, vertical offset, and opacity
 - Enable or disable individual dungeon databases
 - Enable or disable the marker for each configured NPC
+- Choose a different marker for any configured NPC
+- Search and filter NPC lists
+- Select multiple NPCs and assign their marker in one action
+- Export or import an individual dungeon
+- Share one dungeon's marks as a clickable chat link with import confirmation
+- Reset an individual dungeon without affecting the rest of the configuration
 - Show or hide the minimap button
 - Enable diagnostic messages
 - Restore the default configuration
@@ -90,6 +102,12 @@ account-wide.
 - `/pmi combatonly` toggles combat-only mode.
 - `/pmi minimap` shows or hides the minimap shortcut.
 - `/pmi debug` toggles diagnostic messages.
+- `/pmi export KR` exports King's Rest; other supported codes are DN, MR, BV,
+  VA, AF, RL, and TS.
+- `/pmi import` opens the dungeon import dialog.
+- `/pmi share KR` prepares a King's Rest marks message that PMI converts into a
+  clickable link after it is sent; other supported codes are DN, MR, BV, VA,
+  AF, RL, and TS.
 - `/pmi reset` restores default settings.
 
 The legacy `/am` and `/automarker` aliases are also supported.
